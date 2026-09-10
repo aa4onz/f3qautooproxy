@@ -16,3 +16,33 @@ pub fn generate_snowflake_nonce() -> String {
     let snowflake = (timestamp_part << 22) | (worker_id << 17) | (process_id << 12) | increment;
     snowflake.to_string()
 }
+
+/// Extracts a leading integer from a text string if present (e.g., "1243 nice great" -> 1243)
+pub fn parse_leading_number(text: &str) -> Option<i64> {
+    let trimmed = text.trim();
+    let mut num_chars = String::new();
+
+    for c in trimmed.chars() {
+        if c.is_ascii_digit() {
+            num_chars.push(c);
+        } else if num_chars.is_empty() && (c == ' ' || c == '_') {
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    num_chars.parse::<i64>().ok()
+}
+
+/// Generates next message text based on incoming content (e.g. "1243 nice" -> "1244", or "1243 gg" -> "1244 ggs!")
+pub fn generate_next_count_response(content: &str) -> Option<String> {
+    let current_num = parse_leading_number(content)?;
+    let next_num = current_num + 1;
+
+    if content.to_lowercase().contains("gg") {
+        Some(format!("{} ggs!", next_num))
+    } else {
+        Some(next_num.to_string())
+    }
+}

@@ -1,18 +1,15 @@
 use crate::models::ProxyResponse;
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
+use crate::proxy::utils::generate_next_count_response;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-/// Rules governing when a stealth queue reaction should trigger:
-/// 1. Queue Mode must be active.
-/// 2. Zero check: If top item number is 0 (or content "0"), clear entire queue and do not send.
-/// 3. Size check: Requires queue size >= 2 to process.
-/// 4. Sender check:
-///    - Triggers on incoming message event or latest channel message.
-///    - Self message check: Never trigger on own messages.
-///    - Bot check: If sender is a bot, cancel and clear queue immediately.
-///    - Duplicate check: Ignore messages that have already triggered a reaction.
+/// Rules governing stealth counter and queue reactions:
+/// 1. Triggers on incoming channel message from other users (non-bot, non-self).
+/// 2. If incoming text contains a leading number (e.g. "1243 nice great"), calculates next number (1244).
+/// 3. If text contains "gg", formats response as "1244 ggs!", otherwise "1244".
+/// 4. Falls back to queue if manually queued items exist.
 pub async fn evaluate_and_trigger_queue(
     message_data: Option<&serde_json::Value>,
     channel_id: &str,
@@ -23,36 +20,6 @@ pub async fn evaluate_and_trigger_queue(
 ) {
     if channel_id.is_empty() {
         return;
-    }
-
-    // Rule 1: Queue Mode must be active
-    if !state.is_queue_mode_enabled().await {
-        return;
-    }
-
-    // Rule 2 & Rule 3: Check queue existence, zero check, and queue size check
-    {
-        let map = state.active_queue.read().await;
-        if let Some(q) = map.get(channel_id) {
-            if let Some(top_item) = q.first() {
-                // Rule 2: Zero check -> if top item is 0, clear queue and exit
-                if top_item.number == 0 || top_item.content.trim() == "0" {
-                    drop(map);
-                    let cleared = state.clear_queue(channel_id).await;
-                    let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
-                    return;
-                }
-            } else {
-                return;
-            }
-
-            // Rule 3: Size check -> Queue size must be at least 2 to process
-            if q.len() < 2 {
-                return;
-            }
-        } else {
-            return;
-        }
     }
 
     // Fetch last message from Discord API if no direct gateway event was passed
@@ -95,25 +62,40 @@ pub async fn evaluate_and_trigger_queue(
     let author_id = data["author"]["id"].as_str().unwrap_or("");
     let author_uname = data["author"]["username"].as_str().unwrap_or("");
     let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
+    let content = data["content"].as_str().unwrap_or("");
 
-    // Rule 4: Cannot trigger on own message
-    if state.is_self_author(author_id, author_uname).await {
+    // Do not trigger on own message or bot messages
+    if state.is_self_author(author_id, author_uname).await || is_bot {
         return;
     }
 
-    // Rule 4: If message sender is a bot -> clear queue immediately
-    if is_bot {
-        let cleared = state.clear_queue(channel_id).await;
-        let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
-        return;
-    }
-
-    // Mark message ID as processed prior to popping/sending to prevent double-sends
+    // Mark message ID as processed
     if !msg_id.is_empty() {
         state.set_last_processed_message_id(channel_id, msg_id).await;
     }
 
-    // Trigger exactly ONE next item and preserve remaining queue
+    // Auto-count check: if incoming message has a number ("1243 nice" -> "1244" or "1243 gg" -> "1244 ggs!")
+    if let Some(response_text) = generate_next_count_response(content) {
+        let auto_item = crate::models::QueuedItem {
+            content: response_text,
+            number: 0,
+            was_empty: false,
+        };
+
+        execute_queued_reaction(
+            auto_item,
+            channel_id.to_string(),
+            discord_token,
+            http_client,
+            gw_broadcast_tx,
+            Vec::new(),
+            state.clone(),
+        )
+        .await;
+        return;
+    }
+
+    // Fallback trigger if queue items exist in state
     if let Some((item, remaining_q)) = state.pop_next_item(channel_id).await {
         execute_queued_reaction(
             item,

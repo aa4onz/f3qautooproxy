@@ -11,7 +11,6 @@ use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Determine profile from command line args (e.g. `cargo run --bin remote_proxy -- 1` or `cargo run --bin remote_proxy --profile 2`) or PROFILE env var
     let args: Vec<String> = env::args().collect();
     let profile_num = if args.len() > 1 {
         let arg = &args[1];
@@ -33,21 +32,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Loaded configuration from .env");
     }
 
-    let discord_token = env::var("DISCORD_TOKEN")
+    let raw_tokens = env::var("DISCORD_TOKEN")
         .expect("DISCORD_TOKEN environment variable must be set on the proxy server");
+
+    let tokens: Vec<String> = raw_tokens
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if tokens.is_empty() {
+        panic!("No valid tokens found in DISCORD_TOKEN");
+    }
 
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
     let listener = TcpListener::bind(&addr).await?;
-    println!("Remote stealth proxy server (Profile {}) listening on ws://{}", profile_num, addr);
+    println!(
+        "Remote proxy server (Profile {}) listening on ws://{} with {} token(s)",
+        profile_num,
+        addr,
+        tokens.len()
+    );
 
     let (gw_tx, _) = broadcast::channel::<ProxyResponse>(512);
 
     let proxy_state = ProxyState::new();
-
-    // Shared Gateway Write Stream for Typing events
-    let gw_write_arc: SharedGwWriter = Arc::new(Mutex::new(None));
 
     // HTTP Client initialization
     let mut default_headers = HeaderMap::new();
@@ -68,27 +79,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()?,
     );
 
-    // Spawn Gateway WebSocket Loop
-    let gw_broadcast_tx = gw_tx.clone();
-    let token_clone = discord_token.clone();
-    let client_ref = Arc::clone(&http_client);
-    let gw_writer_ref = Arc::clone(&gw_write_arc);
-    let state_clone = proxy_state.clone();
+    // Spawn Gateway WebSocket Loop for each configured token
+    for token in &tokens {
+        let gw_broadcast_tx = gw_tx.clone();
+        let token_clone = token.clone();
+        let client_ref = Arc::clone(&http_client);
+        let gw_writer_arc: SharedGwWriter = Arc::new(Mutex::new(None));
+        let state_clone = proxy_state.clone();
 
-    tokio::spawn(async move {
-        run_discord_gateway(
-            token_clone,
-            state_clone,
-            gw_broadcast_tx,
-            client_ref,
-            gw_writer_ref,
-        )
-        .await;
-    });
+        tokio::spawn(async move {
+            run_discord_gateway(
+                token_clone,
+                state_clone,
+                gw_broadcast_tx,
+                client_ref,
+                gw_writer_arc,
+            )
+            .await;
+        });
+    }
+
+    let primary_token = tokens[0].clone();
 
     while let Ok((stream, _)) = listener.accept().await {
         let _ = stream.set_nodelay(true);
-        let token = discord_token.clone();
+        let token = primary_token.clone();
         let client = Arc::clone(&http_client);
         let gw_tx_clone = gw_tx.clone();
         let state_conn = proxy_state.clone();
