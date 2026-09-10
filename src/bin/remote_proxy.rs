@@ -28,17 +28,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let profile_env = format!(".env.profile_{}", profile_num);
     if std::path::Path::new(&profile_env).exists() {
-        dotenvy::from_filename(&profile_env).ok();
-        println!("Loaded configuration from {}", profile_env);
+        if let Err(e) = dotenvy::from_filename(&profile_env) {
+            println!("[!] Failed to parse {}: {}", profile_env, e);
+        } else {
+            println!("Loaded configuration from {}", profile_env);
+        }
+    } else if std::path::Path::new(".env").exists() {
+        if let Err(e) = dotenvy::dotenv() {
+            println!("[!] Failed to parse .env file: {}", e);
+        } else {
+            println!("Loaded configuration from .env");
+        }
     } else {
-        dotenvy::dotenv().ok();
-        println!("Loaded configuration from .env");
+        println!("[!] Neither {} nor .env was found in the working directory ({:?})", profile_env, env::current_dir().unwrap_or_default());
     }
 
     let raw_tokens = match env::var("DISCORD_TOKEN") {
         Ok(val) if !val.trim().is_empty() => val,
         _ => {
-            println!("\n[!] DISCORD_TOKEN not found in environment or .env file.");
+            println!("\n[!] DISCORD_TOKEN not found in environment or loaded .env file.");
             print!("Please enter your Discord token(s) [comma-separated for multi-token]: ");
             io::stdout().flush()?;
             let mut input = String::new();
