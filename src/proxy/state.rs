@@ -177,4 +177,21 @@ impl ProxyState {
         let mut map = self.last_processed_message_id.write().await;
         map.insert(channel_id.to_string(), msg_id.to_string());
     }
+
+    /// Atomically checks if `msg_id` was already processed for `channel_id`.
+    /// Returns `true` if this caller was the first to mark it as processed,
+    /// or `false` if it was already marked as processed previously.
+    pub async fn try_mark_message_processed(&self, channel_id: &str, msg_id: &str) -> bool {
+        if msg_id.is_empty() {
+            return true;
+        }
+        let mut map = self.last_processed_message_id.write().await;
+        if let Some(last_id) = map.get(channel_id) {
+            if last_id == msg_id {
+                return false;
+            }
+        }
+        map.insert(channel_id.to_string(), msg_id.to_string());
+        true
+    }
 }
