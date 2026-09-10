@@ -31,14 +31,18 @@ pub async fn execute_queued_reaction(
     };
 
     tokio::spawn(async move {
-        // Send typing indicator immediately (without delay)
+        // Fire-and-forget typing indicator concurrently in the background so it never slows down response dispatch
         let typing_url = format!("https://discord.com/api/v10/channels/{}/typing", channel_id);
-        let _ = http_client
-            .post(&typing_url)
-            .header("Authorization", &sending_token)
-            .header("Content-Length", "0")
-            .send()
-            .await;
+        let client_typing = Arc::clone(&http_client);
+        let token_typing = sending_token.clone();
+        tokio::spawn(async move {
+            let _ = client_typing
+                .post(&typing_url)
+                .header("Authorization", &token_typing)
+                .header("Content-Length", "0")
+                .send()
+                .await;
+        });
 
         let delay_ms = match delay_mode {
             ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
