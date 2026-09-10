@@ -1,5 +1,23 @@
 use rand::Rng;
 
+/// Extracts a clean Channel ID from either a raw channel ID string or a Discord channel URL.
+/// Examples:
+/// - "123456789012345678" -> "123456789012345678"
+/// - "https://discord.com/channels/111111/222222333333444444" -> "222222333333444444"
+/// - "https://canary.discord.com/channels/@me/222222333333444444" -> "222222333333444444"
+pub fn extract_channel_id(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.contains('/') {
+        if let Some(last_part) = trimmed.split('/').filter(|s| !s.is_empty()).last() {
+            let clean_part: String = last_part.chars().filter(|c| c.is_ascii_digit()).collect();
+            if !clean_part.is_empty() {
+                return clean_part;
+            }
+        }
+    }
+    trimmed.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
 /// Generates Discord Snowflake ID formatted string for nonces
 pub fn generate_snowflake_nonce() -> String {
     let discord_epoch: u64 = 1420070400000;

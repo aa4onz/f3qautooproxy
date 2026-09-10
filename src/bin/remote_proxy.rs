@@ -3,6 +3,7 @@ use fast_discord_tui::proxy::client_handler::handle_client_connection;
 use fast_discord_tui::proxy::discord_gw::{run_discord_gateway, SharedGwWriter};
 use fast_discord_tui::proxy::state::ProxyState;
 use fast_discord_tui::proxy::trigger_rules::evaluate_and_trigger_queue;
+use fast_discord_tui::proxy::utils::extract_channel_id;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 use std::env;
 use std::io::{self, Write};
@@ -60,17 +61,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("No valid tokens found in DISCORD_TOKEN");
     }
 
-    // Prompt user for Target Channel ID
-    let channel_id = match env::var("CHANNEL_ID") {
+    // Prompt user for Target Channel ID or Channel Link
+    let raw_channel_input = match env::var("CHANNEL_ID") {
         Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
         _ => {
-            print!("\nEnter Target Channel ID to auto-count in: ");
+            print!("\nEnter Target Channel ID or Link to auto-count in: ");
             io::stdout().flush()?;
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
             input.trim().to_string()
         }
     };
+
+    let channel_id = extract_channel_id(&raw_channel_input);
 
     // Prompt user in terminal for token swap selection
     println!("\n==========================================");
