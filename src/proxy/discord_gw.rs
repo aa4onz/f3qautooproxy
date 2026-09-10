@@ -106,7 +106,7 @@ pub async fn run_discord_gateway(
                                         if event_type == "READY" {
                                             let uid = data["user"]["id"].as_str().unwrap_or("");
                                             let uname = data["user"]["username"].as_str().unwrap_or("");
-                                            state.set_self_info(uid, uname).await;
+                                            state.register_self_info(uid, uname).await;
                                         }
 
                                         // Stealth Queue Evaluation

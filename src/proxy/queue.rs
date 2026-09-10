@@ -56,19 +56,26 @@ pub async fn execute_queued_reaction(
             .send()
             .await;
 
-        let is_success = match res {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
-        };
-
-        if is_success {
-            if let Some(num) = sent_num {
-                state.check_and_swap_token(num).await;
+        if let Ok(resp) = res {
+            if resp.status().is_success() {
+                if let Ok(sent_msg) = resp.json::<serde_json::Value>().await {
+                    if let Some(msg_id) = sent_msg["id"].as_str() {
+                        state.try_mark_message_processed(&channel_id, msg_id).await;
+                    }
+                    if let Some(author_id) = sent_msg["author"]["id"].as_str() {
+                        let author_uname = sent_msg["author"]["username"].as_str().unwrap_or("");
+                        state.register_self_info(author_id, author_uname).await;
+                    }
+                }
+                if let Some(num) = sent_num {
+                    state.check_and_swap_token(num).await;
+                }
+                return;
             }
-        } else {
-            // Clear queue on error
-            let cleared = state.clear_queue(&channel_id).await;
-            let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
         }
+
+        // Clear queue on error
+        let cleared = state.clear_queue(&channel_id).await;
+        let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
     });
 }

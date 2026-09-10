@@ -1,5 +1,5 @@
 use crate::models::{QueuedItem, ReactionDelayMode};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -9,8 +9,8 @@ pub struct ProxyState {
     pub queue_mode_enabled: Arc<RwLock<bool>>,
     pub hardware_delay_ms: Arc<RwLock<u64>>,
     pub reaction_delay_mode: Arc<RwLock<ReactionDelayMode>>,
-    pub self_user_id: Arc<RwLock<String>>,
-    pub self_username: Arc<RwLock<String>>,
+    pub self_user_ids: Arc<RwLock<HashSet<String>>>,
+    pub self_usernames: Arc<RwLock<HashSet<String>>>,
     pub last_processed_message_id: Arc<RwLock<HashMap<String, String>>>,
     pub available_tokens: Arc<RwLock<Vec<String>>>,
     pub token_swap_count: Arc<RwLock<usize>>,
@@ -25,8 +25,8 @@ impl ProxyState {
             queue_mode_enabled: Arc::new(RwLock::new(true)),
             hardware_delay_ms: Arc::new(RwLock::new(45u64)),
             reaction_delay_mode: Arc::new(RwLock::new(ReactionDelayMode::Normal)),
-            self_user_id: Arc::new(RwLock::new(String::new())),
-            self_username: Arc::new(RwLock::new(String::new())),
+            self_user_ids: Arc::new(RwLock::new(HashSet::new())),
+            self_usernames: Arc::new(RwLock::new(HashSet::new())),
             last_processed_message_id: Arc::new(RwLock::new(HashMap::new())),
             available_tokens: Arc::new(RwLock::new(Vec::new())),
             token_swap_count: Arc::new(RwLock::new(1)),
@@ -143,19 +143,23 @@ impl ProxyState {
         None
     }
 
-    pub async fn set_self_info(&self, user_id: &str, username: &str) {
+    pub async fn register_self_info(&self, user_id: &str, username: &str) {
         if !user_id.is_empty() {
-            *self.self_user_id.write().await = user_id.to_string();
+            self.self_user_ids.write().await.insert(user_id.to_string());
         }
         if !username.is_empty() {
-            *self.self_username.write().await = username.to_string();
+            self.self_usernames.write().await.insert(username.to_string());
         }
     }
 
     pub async fn is_self_author(&self, author_id: &str, author_uname: &str) -> bool {
-        let my_id = self.self_user_id.read().await;
-        let my_uname = self.self_username.read().await;
-        (!my_id.is_empty() && author_id == *my_id) || (!my_uname.is_empty() && author_uname == *my_uname)
+        if !author_id.is_empty() && self.self_user_ids.read().await.contains(author_id) {
+            return true;
+        }
+        if !author_uname.is_empty() && self.self_usernames.read().await.contains(author_uname) {
+            return true;
+        }
+        false
     }
 
     pub async fn is_message_already_processed(&self, channel_id: &str, msg_id: &str) -> bool {

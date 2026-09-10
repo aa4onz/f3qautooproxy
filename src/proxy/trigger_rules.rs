@@ -22,6 +22,12 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
+    // Filter by configured target channel if specified
+    let target_cid = state.get_target_channel_id().await;
+    if !target_cid.is_empty() && channel_id != target_cid {
+        return;
+    }
+
     // Fetch last message from Discord API if no direct gateway event was passed
     let fetched_last_msg;
     let data = match message_data {
@@ -59,7 +65,7 @@ pub async fn evaluate_and_trigger_queue(
     let is_bot = data["author"]["bot"].as_bool().unwrap_or(false);
     let content = data["content"].as_str().unwrap_or("");
 
-    // Do not trigger on own message or bot messages
+    // Do not trigger on own message (across any configured token) or bot messages
     if state.is_self_author(author_id, author_uname).await || is_bot {
         return;
     }
