@@ -52,25 +52,17 @@ pub async fn run_discord_gateway(
                             "op": 2,
                             "d": {
                                 "token": discord_token,
-                                "capabilities": 16381,
                                 "properties": {
-                                    "$os": "Windows",
-                                    "$browser": "Chrome",
-                                    "$device": "",
-                                    "system_locale": "en-US",
-                                    "browser_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                                    "browser_version": "128.0.0.0",
-                                    "os_version": "10",
-                                    "referrer": "https://discord.com/",
-                                    "referring_domain": "discord.com"
+                                    "os": "Windows",
+                                    "browser": "Chrome",
+                                    "device": ""
                                 },
                                 "presence": {
                                     "status": "online",
                                     "since": 0,
                                     "activities": [],
                                     "afk": false
-                                },
-                                "compress": false
+                                }
                             }
                         });
 

@@ -1,4 +1,4 @@
-use fast_discord_tui::models::ProxyResponse;
+use fast_discord_tui::models::{ProxyResponse, ReactionDelayMode};
 use fast_discord_tui::proxy::client_handler::handle_client_connection;
 use fast_discord_tui::proxy::discord_gw::{run_discord_gateway, SharedGwWriter};
 use fast_discord_tui::proxy::state::ProxyState;
@@ -15,6 +15,7 @@ use tokio::sync::{broadcast, Mutex};
 use tokio::time::Duration;
 
 fn save_env_var(file_path: &Path, key: &str, value: &str) {
+    let clean_val = value.trim().trim_matches('"').trim_matches('\'');
     let mut lines: Vec<String> = if file_path.exists() {
         fs::read_to_string(file_path)
             .unwrap_or_default()
@@ -26,10 +27,11 @@ fn save_env_var(file_path: &Path, key: &str, value: &str) {
     };
 
     let mut found = false;
-    let new_line = format!("{}={}", key, value);
+    let new_line = format!("{}=\"{}\"", key, clean_val);
 
     for line in lines.iter_mut() {
-        if line.trim_start().starts_with(&format!("{}=", key)) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(&format!("{}=", key)) {
             *line = new_line.clone();
             found = true;
             break;
@@ -81,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut token_prompted = false;
     let raw_tokens = match env::var("DISCORD_TOKEN") {
-        Ok(val) if !val.trim().is_empty() => val,
+        Ok(val) if !val.trim().is_empty() => val.trim().trim_matches('"').to_string(),
         _ => {
             token_prompted = true;
             println!("\n[!] DISCORD_TOKEN not found in environment or loaded .env file.");
@@ -89,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             io::stdout().flush()?;
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
-            let trimmed = input.trim().to_string();
+            let trimmed = input.trim().trim_matches('"').to_string();
             if trimmed.is_empty() {
                 panic!("No Discord token provided. Exiting.");
             }
@@ -103,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let tokens: Vec<String> = raw_tokens
         .split(',')
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim().trim_matches('"').to_string())
         .filter(|s| !s.is_empty())
         .collect();
 
@@ -113,14 +115,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut channel_prompted = false;
     let raw_channel_input = match env::var("CHANNEL_ID") {
-        Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
+        Ok(val) if !val.trim().is_empty() => val.trim().trim_matches('"').to_string(),
         _ => {
             channel_prompted = true;
             print!("\nEnter Target Channel ID or Link to auto-count in: ");
             io::stdout().flush()?;
             let mut input = String::new();
             io::stdin().read_line(&mut input)?;
-            input.trim().to_string()
+            input.trim().trim_matches('"').to_string()
         }
     };
 
@@ -148,7 +150,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => 1,
     };
 
+    println!("\nSelect reaction delay mode:");
+    println!("  1 = Normal (200ms - 300ms delay)");
+    println!("  2 = Fast (0ms - 200ms delay)");
+    println!("  3 = Instant (0ms delay)");
+    print!("Enter choice (1, 2, or 3) [default: 1]: ");
+    io::stdout().flush()?;
+
+    let mut delay_input = String::new();
+    io::stdin().read_line(&mut delay_input)?;
+    let delay_mode = match delay_input.trim() {
+        "2" => ReactionDelayMode::Fast,
+        "3" => ReactionDelayMode::Instant,
+        _ => ReactionDelayMode::Normal,
+    };
+
     println!("Selected swap mode: {}", swap_count);
+    println!("Selected delay mode: {:?}", delay_mode);
     println!("==========================================\n");
 
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
@@ -167,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proxy_state = ProxyState::new();
     proxy_state.set_token_rotation_config(tokens.clone(), swap_count).await;
     proxy_state.set_target_channel_id(&channel_id).await;
+    proxy_state.set_reaction_delay_mode(delay_mode).await;
 
     // HTTP Client initialization
     let mut default_headers = HeaderMap::new();

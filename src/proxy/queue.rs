@@ -31,6 +31,15 @@ pub async fn execute_queued_reaction(
     };
 
     tokio::spawn(async move {
+        // Send typing indicator immediately (without delay)
+        let typing_url = format!("https://discord.com/api/v10/channels/{}/typing", channel_id);
+        let _ = http_client
+            .post(&typing_url)
+            .header("Authorization", &sending_token)
+            .header("Content-Length", "0")
+            .send()
+            .await;
+
         let delay_ms = match delay_mode {
             ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
             ReactionDelayMode::Fast => rand::thread_rng().gen_range(0..=200),
