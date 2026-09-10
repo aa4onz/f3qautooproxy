@@ -33,8 +33,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Loaded configuration from .env");
     }
 
-    let raw_tokens = env::var("DISCORD_TOKEN")
-        .expect("DISCORD_TOKEN environment variable must be set on the proxy server");
+    let raw_tokens = match env::var("DISCORD_TOKEN") {
+        Ok(val) if !val.trim().is_empty() => val,
+        _ => {
+            println!("\n[!] DISCORD_TOKEN not found in environment or .env file.");
+            print!("Please enter your Discord token(s) [comma-separated for multi-token]: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let trimmed = input.trim().to_string();
+            if trimmed.is_empty() {
+                panic!("No Discord token provided. Exiting.");
+            }
+            trimmed
+        }
+    };
 
     let tokens: Vec<String> = raw_tokens
         .split(',')
