@@ -4,6 +4,7 @@ use fast_discord_tui::proxy::discord_gw::{run_discord_gateway, SharedGwWriter};
 use fast_discord_tui::proxy::state::ProxyState;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 use std::env;
+use std::io::{self, Write};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex};
@@ -45,6 +46,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("No valid tokens found in DISCORD_TOKEN");
     }
 
+    // Prompt user in terminal for token swap selection
+    println!("\n==========================================");
+    println!("Available Tokens: {}", tokens.len());
+    println!("Select token swap mode:");
+    println!("  1 = No swap (use Token 1 only)");
+    println!("  2 = Swap 2 tokens (Swap on numbers ending in 00)");
+    println!("  3 = Swap 3 tokens (Swap on numbers ending in 50 or 00)");
+    print!("Enter choice (1, 2, or 3) [default: 1]: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let swap_count: usize = match input.trim().parse::<usize>() {
+        Ok(val) if (1..=3).contains(&val) => val,
+        _ => 1,
+    };
+
+    println!("Selected swap mode: {}", swap_count);
+    println!("==========================================\n");
+
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let addr = format!("0.0.0.0:{}", port);
 
@@ -59,6 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (gw_tx, _) = broadcast::channel::<ProxyResponse>(512);
 
     let proxy_state = ProxyState::new();
+    proxy_state.set_token_rotation_config(tokens.clone(), swap_count).await;
 
     // HTTP Client initialization
     let mut default_headers = HeaderMap::new();

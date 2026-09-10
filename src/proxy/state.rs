@@ -12,6 +12,9 @@ pub struct ProxyState {
     pub self_user_id: Arc<RwLock<String>>,
     pub self_username: Arc<RwLock<String>>,
     pub last_processed_message_id: Arc<RwLock<HashMap<String, String>>>,
+    pub available_tokens: Arc<RwLock<Vec<String>>>,
+    pub token_swap_count: Arc<RwLock<usize>>,
+    pub current_token_index: Arc<RwLock<usize>>,
 }
 
 impl ProxyState {
@@ -24,6 +27,50 @@ impl ProxyState {
             self_user_id: Arc::new(RwLock::new(String::new())),
             self_username: Arc::new(RwLock::new(String::new())),
             last_processed_message_id: Arc::new(RwLock::new(HashMap::new())),
+            available_tokens: Arc::new(RwLock::new(Vec::new())),
+            token_swap_count: Arc::new(RwLock::new(1)),
+            current_token_index: Arc::new(RwLock::new(0)),
+        }
+    }
+
+    pub async fn set_token_rotation_config(&self, tokens: Vec<String>, swap_count: usize) {
+        *self.available_tokens.write().await = tokens;
+        *self.token_swap_count.write().await = swap_count;
+        *self.current_token_index.write().await = 0;
+    }
+
+    pub async fn get_current_token(&self, fallback: &str) -> String {
+        let tokens = self.available_tokens.read().await;
+        if tokens.is_empty() {
+            return fallback.to_string();
+        }
+        let idx = *self.current_token_index.read().await;
+        tokens.get(idx).cloned().unwrap_or_else(|| fallback.to_string())
+    }
+
+    pub async fn check_and_swap_token(&self, number: i64) {
+        let swap_count = *self.token_swap_count.read().await;
+        let tokens = self.available_tokens.read().await;
+        let total_tokens = tokens.len();
+
+        if swap_count <= 1 || total_tokens <= 1 {
+            return;
+        }
+
+        let num_abs = number.abs();
+        let active_swap_count = swap_count.min(total_tokens);
+
+        let should_swap = match active_swap_count {
+            2 => num_abs % 100 == 0,
+            3 => num_abs % 50 == 0,
+            _ => false,
+        };
+
+        if should_swap {
+            let mut idx_lock = self.current_token_index.write().await;
+            let next_idx = (*idx_lock + 1) % active_swap_count;
+            *idx_lock = next_idx;
+            println!("[TOKEN SWAP] Triggered at number {}. Switched to token #{}.", number, next_idx + 1);
         }
     }
 

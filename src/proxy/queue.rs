@@ -1,6 +1,6 @@
 use crate::models::{QueuedItem, ProxyResponse, ReactionDelayMode};
 use crate::proxy::state::ProxyState;
-use crate::proxy::utils::generate_snowflake_nonce;
+use crate::proxy::utils::{generate_snowflake_nonce, parse_leading_number};
 use rand::Rng;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -9,7 +9,7 @@ use tokio::time::Duration;
 pub async fn execute_queued_reaction(
     item: QueuedItem,
     channel_id: String,
-    discord_token: String,
+    fallback_discord_token: String,
     http_client: Arc<reqwest::Client>,
     gw_broadcast_tx: broadcast::Sender<ProxyResponse>,
     remaining_queue: Vec<QueuedItem>,
@@ -21,6 +21,10 @@ pub async fn execute_queued_reaction(
     });
 
     let delay_mode = state.get_reaction_delay_mode().await;
+    let sending_token = state.get_current_token(&fallback_discord_token).await;
+
+    // Parse number to evaluate swap after sending
+    let sent_num = item.number.nonzero().map(|n| n.get()).or_else(|| parse_leading_number(&item.content));
 
     tokio::spawn(async move {
         let delay_ms = match delay_mode {
@@ -42,19 +46,23 @@ pub async fn execute_queued_reaction(
 
         let res = http_client
             .post(&msg_url)
-            .header("Authorization", &discord_token)
+            .header("Authorization", &sending_token)
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
             .await;
 
-        // If message fails (rate limited 429, rejected, network error, etc.), clear queue immediately
         let is_success = match res {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         };
 
-        if !is_success {
+        if is_success {
+            if let Some(num) = sent_num {
+                state.check_and_swap_token(num).await;
+            }
+        } else {
+            // Clear queue on error
             let cleared = state.clear_queue(&channel_id).await;
             let _ = gw_broadcast_tx.send(ProxyResponse::QueueSync { queue: cleared });
         }
