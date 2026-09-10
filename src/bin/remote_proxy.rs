@@ -2,6 +2,7 @@ use fast_discord_tui::models::ProxyResponse;
 use fast_discord_tui::proxy::client_handler::handle_client_connection;
 use fast_discord_tui::proxy::discord_gw::{run_discord_gateway, SharedGwWriter};
 use fast_discord_tui::proxy::state::ProxyState;
+use fast_discord_tui::proxy::trigger_rules::evaluate_and_trigger_queue;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 use std::env;
 use std::io::{self, Write};
@@ -59,9 +60,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("No valid tokens found in DISCORD_TOKEN");
     }
 
+    // Prompt user for Target Channel ID
+    let channel_id = match env::var("CHANNEL_ID") {
+        Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
+        _ => {
+            print!("\nEnter Target Channel ID to auto-count in: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            input.trim().to_string()
+        }
+    };
+
     // Prompt user in terminal for token swap selection
     println!("\n==========================================");
     println!("Available Tokens: {}", tokens.len());
+    println!("Target Channel ID: {}", if channel_id.is_empty() { "None (Waiting for socket)" } else { &channel_id });
     println!("Select token swap mode:");
     println!("  1 = No swap (use Token 1 only)");
     println!("  2 = Swap 2 tokens (Swap on numbers ending in 00)");
@@ -94,6 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let proxy_state = ProxyState::new();
     proxy_state.set_token_rotation_config(tokens.clone(), swap_count).await;
+    proxy_state.set_target_channel_id(&channel_id).await;
 
     // HTTP Client initialization
     let mut default_headers = HeaderMap::new();
@@ -135,6 +150,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let primary_token = tokens[0].clone();
+
+    // Check last channel message once on startup if channel ID provided
+    if !channel_id.is_empty() {
+        let state_init = proxy_state.clone();
+        let client_init = Arc::clone(&http_client);
+        let token_init = primary_token.clone();
+        let gw_tx_init = gw_tx.clone();
+        let cid_init = channel_id.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            evaluate_and_trigger_queue(
+                None,
+                &cid_init,
+                &state_init,
+                token_init,
+                client_init,
+                gw_tx_init,
+            )
+            .await;
+        });
+    }
 
     while let Ok((stream, _)) = listener.accept().await {
         let _ = stream.set_nodelay(true);

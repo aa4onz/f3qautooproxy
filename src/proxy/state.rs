@@ -15,6 +15,7 @@ pub struct ProxyState {
     pub available_tokens: Arc<RwLock<Vec<String>>>,
     pub token_swap_count: Arc<RwLock<usize>>,
     pub current_token_index: Arc<RwLock<usize>>,
+    pub target_channel_id: Arc<RwLock<String>>,
 }
 
 impl ProxyState {
@@ -30,7 +31,16 @@ impl ProxyState {
             available_tokens: Arc::new(RwLock::new(Vec::new())),
             token_swap_count: Arc::new(RwLock::new(1)),
             current_token_index: Arc::new(RwLock::new(0)),
+            target_channel_id: Arc::new(RwLock::new(String::new())),
         }
+    }
+
+    pub async fn set_target_channel_id(&self, channel_id: &str) {
+        *self.target_channel_id.write().await = channel_id.trim().to_string();
+    }
+
+    pub async fn get_target_channel_id(&self) -> String {
+        self.target_channel_id.read().await.clone()
     }
 
     pub async fn set_token_rotation_config(&self, tokens: Vec<String>, swap_count: usize) {
