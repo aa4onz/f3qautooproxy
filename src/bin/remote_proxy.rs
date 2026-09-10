@@ -6,11 +6,47 @@ use fast_discord_tui::proxy::trigger_rules::evaluate_and_trigger_queue;
 use fast_discord_tui::proxy::utils::extract_channel_id;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT};
 use std::env;
+use std::fs;
 use std::io::{self, Write};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Mutex};
 use tokio::time::Duration;
+
+fn save_env_var(file_path: &Path, key: &str, value: &str) {
+    let mut lines: Vec<String> = if file_path.exists() {
+        fs::read_to_string(file_path)
+            .unwrap_or_default()
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut found = false;
+    let new_line = format!("{}={}", key, value);
+
+    for line in lines.iter_mut() {
+        if line.trim_start().starts_with(&format!("{}=", key)) {
+            *line = new_line.clone();
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        lines.push(new_line);
+    }
+
+    let content = lines.join("\n") + "\n";
+    if let Err(e) = fs::write(file_path, content) {
+        println!("[!] Failed to save {} to {:?}: {}", key, file_path, e);
+    } else {
+        println!("[+] Saved {} to {:?}", key, file_path);
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,26 +62,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         env::var("PROFILE").unwrap_or_else(|_| "1".to_string())
     };
 
-    let profile_env = format!(".env.profile_{}", profile_num);
-    if std::path::Path::new(&profile_env).exists() {
-        if let Err(e) = dotenvy::from_filename(&profile_env) {
-            println!("[!] Failed to parse {}: {}", profile_env, e);
+    let profile_env_filename = format!(".env.profile_{}", profile_num);
+    let target_env_file = if Path::new(&profile_env_filename).exists() {
+        Path::new(&profile_env_filename).to_path_buf()
+    } else {
+        Path::new(".env").to_path_buf()
+    };
+
+    if target_env_file.exists() {
+        if let Err(e) = dotenvy::from_path(&target_env_file) {
+            println!("[!] Failed to parse {:?}: {}", target_env_file, e);
         } else {
-            println!("Loaded configuration from {}", profile_env);
-        }
-    } else if std::path::Path::new(".env").exists() {
-        if let Err(e) = dotenvy::dotenv() {
-            println!("[!] Failed to parse .env file: {}", e);
-        } else {
-            println!("Loaded configuration from .env");
+            println!("Loaded configuration from {:?}", target_env_file);
         }
     } else {
-        println!("[!] Neither {} nor .env was found in the working directory ({:?})", profile_env, env::current_dir().unwrap_or_default());
+        println!("[!] {:?} was not found in working directory ({:?})", target_env_file, env::current_dir().unwrap_or_default());
     }
 
+    let mut token_prompted = false;
     let raw_tokens = match env::var("DISCORD_TOKEN") {
         Ok(val) if !val.trim().is_empty() => val,
         _ => {
+            token_prompted = true;
             println!("\n[!] DISCORD_TOKEN not found in environment or loaded .env file.");
             print!("Please enter your Discord token(s) [comma-separated for multi-token]: ");
             io::stdout().flush()?;
@@ -59,6 +97,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    if token_prompted {
+        save_env_var(&target_env_file, "DISCORD_TOKEN", &raw_tokens);
+    }
+
     let tokens: Vec<String> = raw_tokens
         .split(',')
         .map(|s| s.trim().to_string())
@@ -69,10 +111,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("No valid tokens found in DISCORD_TOKEN");
     }
 
-    // Prompt user for Target Channel ID or Channel Link
+    let mut channel_prompted = false;
     let raw_channel_input = match env::var("CHANNEL_ID") {
         Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
         _ => {
+            channel_prompted = true;
             print!("\nEnter Target Channel ID or Link to auto-count in: ");
             io::stdout().flush()?;
             let mut input = String::new();
@@ -80,6 +123,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             input.trim().to_string()
         }
     };
+
+    if channel_prompted && !raw_channel_input.is_empty() {
+        save_env_var(&target_env_file, "CHANNEL_ID", &raw_channel_input);
+    }
 
     let channel_id = extract_channel_id(&raw_channel_input);
 
