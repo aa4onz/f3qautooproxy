@@ -35,7 +35,11 @@ pub fn generate_snowflake_nonce() -> String {
     snowflake.to_string()
 }
 
-/// Extracts a leading integer from a text string if present (e.g., "1243 nice great" -> 1243)
+/// Extracts a leading integer from a text string if present
+/// Examples:
+/// - "1243 nice great" -> 1243
+/// - "123a" -> 123
+/// - "123withanything" -> 123
 pub fn parse_leading_number(text: &str) -> Option<i64> {
     let trimmed = text.trim();
     let mut num_chars = String::new();
