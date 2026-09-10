@@ -7,6 +7,7 @@ pub enum ReactionDelayMode {
     Normal,  // 200ms - 300ms
     Fast,    // 0ms - 200ms
     Instant, // 0ms
+    Random,  // 0ms - 300ms
 }
 
 #[derive(Debug, Clone, Deserialize)]

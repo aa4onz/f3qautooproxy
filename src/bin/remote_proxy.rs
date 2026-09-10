@@ -154,7 +154,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  1 = Normal (200ms - 300ms delay)");
     println!("  2 = Fast (0ms - 200ms delay)");
     println!("  3 = Instant (0ms delay)");
-    print!("Enter choice (1, 2, or 3) [default: 1]: ");
+    println!("  4 = Random (0ms - 300ms delay)");
+    print!("Enter choice (1, 2, 3, or 4) [default: 1]: ");
     io::stdout().flush()?;
 
     let mut delay_input = String::new();
@@ -162,6 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let delay_mode = match delay_input.trim() {
         "2" => ReactionDelayMode::Fast,
         "3" => ReactionDelayMode::Instant,
+        "4" => ReactionDelayMode::Random,
         _ => ReactionDelayMode::Normal,
     };
 

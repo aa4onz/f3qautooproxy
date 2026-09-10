@@ -48,6 +48,7 @@ pub async fn execute_queued_reaction(
             ReactionDelayMode::Normal => rand::thread_rng().gen_range(200..=300),
             ReactionDelayMode::Fast => rand::thread_rng().gen_range(0..=200),
             ReactionDelayMode::Instant => 0,
+            ReactionDelayMode::Random => rand::thread_rng().gen_range(0..=300),
         };
 
         if delay_ms > 0 {
