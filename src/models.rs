@@ -48,7 +48,6 @@ pub enum AppEvent {
     IncomingMessage(DiscordMessage),
     MessageSent { nonce: String, timestamp: String },
     MessageFailed { nonce: String },
-    Terminal(crossterm::event::Event),
     GatewayClosed,
     SetSelfUsername(String),
     HttpTriggerTyping,

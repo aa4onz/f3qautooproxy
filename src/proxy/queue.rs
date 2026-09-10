@@ -24,7 +24,11 @@ pub async fn execute_queued_reaction(
     let sending_token = state.get_current_token(&fallback_discord_token).await;
 
     // Parse number to evaluate swap after sending
-    let sent_num = item.number.nonzero().map(|n| n.get()).or_else(|| parse_leading_number(&item.content));
+    let sent_num = if item.number != 0 {
+        Some(item.number)
+    } else {
+        parse_leading_number(&item.content)
+    };
 
     tokio::spawn(async move {
         let delay_ms = match delay_mode {
