@@ -1,15 +1,15 @@
 use crate::models::ProxyResponse;
 use crate::proxy::queue::execute_queued_reaction;
 use crate::proxy::state::ProxyState;
-use crate::proxy::utils::generate_next_count_response;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
 /// Rules governing stealth counter and queue reactions:
 /// 1. Triggers on incoming channel message from other users (non-bot, non-self).
-/// 2. If incoming text contains a leading number (e.g. "1243 nice great"), calculates next number (1244).
-/// 3. If text contains "gg", formats response as "1244 ggs!", otherwise "1244".
-/// 4. Falls back to queue if manually queued items exist.
+/// 2. Tracks sequential count progress. If 4 numbers are sequential, `flag_seq` becomes true.
+/// 3. If incoming number is not `last + 1` and `flag_seq` is true, sends `last_self_num + 2`.
+/// 4. If text contains "gg", formats response as "<number> ggs!", otherwise "<number>".
+/// 5. Falls back to queue if manually queued items exist.
 pub async fn evaluate_and_trigger_queue(
     message_data: Option<&serde_json::Value>,
     channel_id: &str,
@@ -76,8 +76,8 @@ pub async fn evaluate_and_trigger_queue(
         return;
     }
 
-    // Auto-count check: if incoming message has a number ("1243 nice" -> "1244" or "1243 gg" -> "1244 ggs!")
-    if let Some(response_text) = generate_next_count_response(content) {
+    // Auto-count evaluation with 4-sequential rule check
+    if let Some(response_text) = state.evaluate_next_count(channel_id, content).await {
         let auto_item = crate::models::QueuedItem {
             content: response_text,
             number: 0,

@@ -82,6 +82,7 @@ pub async fn execute_queued_reaction(
                     }
                 }
                 if let Some(num) = sent_num {
+                    state.register_sent_number(&channel_id, num).await;
                     state.check_and_swap_token(num).await;
                 }
                 return;

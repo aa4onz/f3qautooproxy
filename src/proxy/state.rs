@@ -1,4 +1,5 @@
 use crate::models::{QueuedItem, ReactionDelayMode};
+use crate::proxy::utils::{format_count_response, parse_leading_number};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -16,6 +17,12 @@ pub struct ProxyState {
     pub token_swap_count: Arc<RwLock<usize>>,
     pub current_token_index: Arc<RwLock<usize>>,
     pub target_channel_id: Arc<RwLock<String>>,
+
+    // Sequential counting tracking per channel
+    pub channel_seq_count: Arc<RwLock<HashMap<String, usize>>>,
+    pub channel_flag_seq: Arc<RwLock<HashMap<String, bool>>>,
+    pub channel_last_self_num: Arc<RwLock<HashMap<String, i64>>>,
+    pub channel_last_num: Arc<RwLock<HashMap<String, i64>>>,
 }
 
 impl ProxyState {
@@ -32,6 +39,11 @@ impl ProxyState {
             token_swap_count: Arc::new(RwLock::new(1)),
             current_token_index: Arc::new(RwLock::new(0)),
             target_channel_id: Arc::new(RwLock::new(String::new())),
+
+            channel_seq_count: Arc::new(RwLock::new(HashMap::new())),
+            channel_flag_seq: Arc::new(RwLock::new(HashMap::new())),
+            channel_last_self_num: Arc::new(RwLock::new(HashMap::new())),
+            channel_last_num: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -197,5 +209,76 @@ impl ProxyState {
         }
         map.insert(channel_id.to_string(), msg_id.to_string());
         true
+    }
+
+    /// Evaluates the next count response using 4-sequential rule and fallback to (last_self_num + 2).
+    pub async fn evaluate_next_count(&self, channel_id: &str, content: &str) -> Option<String> {
+        let incoming_num = parse_leading_number(content)?;
+
+        let mut last_num_map = self.channel_last_num.write().await;
+        let mut seq_map = self.channel_seq_count.write().await;
+        let mut flag_map = self.channel_flag_seq.write().await;
+        let self_map = self.channel_last_self_num.read().await;
+
+        let prev_num = last_num_map.get(channel_id).copied();
+        let current_flag = *flag_map.get(channel_id).unwrap_or(&false);
+        let current_seq = *seq_map.get(channel_id).unwrap_or(&0);
+
+        let is_sequential = match prev_num {
+            Some(prev) => incoming_num == prev + 1,
+            None => true,
+        };
+
+        let new_seq = if is_sequential {
+            current_seq + 1
+        } else {
+            1
+        };
+
+        seq_map.insert(channel_id.to_string(), new_seq);
+        if new_seq >= 4 {
+            flag_map.insert(channel_id.to_string(), true);
+        }
+
+        let next_num = if !is_sequential && current_flag {
+            if let Some(&last_self) = self_map.get(channel_id) {
+                // Reset flag and seq after applying fallback rule
+                flag_map.insert(channel_id.to_string(), false);
+                seq_map.insert(channel_id.to_string(), 0);
+                last_self + 2
+            } else {
+                incoming_num + 1
+            }
+        } else {
+            incoming_num + 1
+        };
+
+        last_num_map.insert(channel_id.to_string(), incoming_num);
+        Some(format_count_response(next_num, content))
+    }
+
+    /// Registers a sent count number from our user/bot token to update sequence progress.
+    pub async fn register_sent_number(&self, channel_id: &str, sent_num: i64) {
+        let mut last_self_map = self.channel_last_self_num.write().await;
+        let mut last_num_map = self.channel_last_num.write().await;
+        let mut seq_map = self.channel_seq_count.write().await;
+        let mut flag_map = self.channel_flag_seq.write().await;
+
+        let prev_num = last_num_map.get(channel_id).copied();
+        let current_seq = *seq_map.get(channel_id).unwrap_or(&0);
+
+        let is_sequential = match prev_num {
+            Some(prev) => sent_num == prev + 1,
+            None => true,
+        };
+
+        let new_seq = if is_sequential { current_seq + 1 } else { 1 };
+        seq_map.insert(channel_id.to_string(), new_seq);
+        if new_seq >= 4 {
+            flag_map.insert(channel_id.to_string(), true);
+        }
+
+        last_self_map.insert(channel_id.to_string(), sent_num);
+        last_num_map.insert(channel_id.to_string(), sent_num);
     }
 }

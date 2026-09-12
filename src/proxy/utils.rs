@@ -57,14 +57,18 @@ pub fn parse_leading_number(text: &str) -> Option<i64> {
     num_chars.parse::<i64>().ok()
 }
 
+/// Formats calculated next number with any suffix options (e.g., "gg" -> "ggs!")
+pub fn format_count_response(next_num: i64, content: &str) -> String {
+    if content.to_lowercase().contains("gg") {
+        format!("{} ggs!", next_num)
+    } else {
+        next_num.to_string()
+    }
+}
+
 /// Generates next message text based on incoming content (e.g. "1243 nice" -> "1244", or "1243 gg" -> "1244 ggs!")
 pub fn generate_next_count_response(content: &str) -> Option<String> {
     let current_num = parse_leading_number(content)?;
     let next_num = current_num + 1;
-
-    if content.to_lowercase().contains("gg") {
-        Some(format!("{} ggs!", next_num))
-    } else {
-        Some(next_num.to_string())
-    }
+    Some(format_count_response(next_num, content))
 }
